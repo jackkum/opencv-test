@@ -11,10 +11,10 @@ var RED   = [0, 0, 255]; // B, G, R
 var GREEN = [0, 255, 0]; // B, G, R
 var WHITE = [255, 255, 255]; // B, G, R
 
-cv.readImage(__dirname + "/test3.jpg", function(err, im){
+cv.readImage(__dirname + "/images/test3.jpg", function(err, im){
   if (err) throw err;
 
-  im.detectObject(__dirname + "/haarcascade_russian_plate_number.xml", {}, function(err, faces){
+  im.detectObject(__dirname + "/data/haarcascade_russian_plate_number.xml", {}, function(err, faces){
     if (err) throw err;
 
     var i = 0;
