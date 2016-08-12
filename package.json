@@ -1,0 +1,27 @@
+{
+  "name": "Recongitor",
+  "version": "1.0.0",
+  "description": "OCR",
+  "main": "index.js",
+  "dependencies": {
+    "async": "^2.0.1",
+    "brain.js": "^0.7.0",
+    "opencv": "^5.0.0",
+    "request": "^2.74.0",
+    "sprintf": "^0.1.5"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jackkum/opencv-test.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jackkum/opencv-test/issues"
+  },
+  "homepage": "https://github.com/jackkum/opencv-test#readme"
+}
