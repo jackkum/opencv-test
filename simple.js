@@ -86,9 +86,6 @@ async.compose.apply(async, files.map(function(file){
       var min = Math.min.apply(null, arr);
       var max = Math.max.apply(null, arr);
       var mid = ((max - min) / 2) + min;
-      // max == 100
-      // col == x
-      // x = 
 
       var input = [];
       for(var x = 0; x < im.width(); x++){
@@ -118,10 +115,11 @@ async.compose.apply(async, files.map(function(file){
   }
 
   net.train(data, {
-    errorThresh: 0.025,
+    errorThresh: 0.005,
+    iterations: 20000,
     log: true,
     logPeriod: 1,
-    learningRate: 0.1
+    learningRate: 0.3
   });
 
   var wstream = fs.createWriteStream('./data/train.json');
