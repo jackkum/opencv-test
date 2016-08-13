@@ -81,7 +81,7 @@ function parseFace(im, i, face)
         if(contours.area(x) > minArea) {
           contours.approxPolyDP(x, contours.arcLength(x, true) * 0.025, true);
 
-          cp.drawContour(contours, x, GREEN);
+          //cp.drawContour(contours, x, GREEN);
 
           var length = contours.cornerCount(x);
 
@@ -179,7 +179,7 @@ function parseFace(im, i, face)
             values.forEach(function(val, index){
               //console.info("%d => %d", index, val);
               var p = (val * 100 / max);
-              if(p >= 80){
+              if(p >= 85){
                 current.push(index);
               } else {
                 if(current.length > 0){
