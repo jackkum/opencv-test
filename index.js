@@ -1,7 +1,7 @@
 'use strict';
 
 var cv = require('opencv');
-var tesseract = require('node-tesseract');
+//var tesseract = require('node-tesseract');
 var async = require('async');
 var sprintf = require('sprintf');
 var minArea = 10000;
@@ -10,8 +10,10 @@ var BLUE  = [0, 255, 0]; // B, G, R
 var RED   = [0, 0, 255]; // B, G, R
 var GREEN = [0, 255, 0]; // B, G, R
 var WHITE = [255, 255, 255]; // B, G, R
+var filename = (process.argv[2] || "1.jpg");
+var clrFileName = filename.replace(/\.(jpg|png|jpeg)/g, '');
 
-cv.readImage(__dirname + "/images/test3.jpg", function(err, im){
+cv.readImage(__dirname + "/images/" + filename, function(err, im){
   if (err) throw err;
 
   im.detectObject(__dirname + "/data/haarcascade_russian_plate_number.xml", {}, function(err, faces){
@@ -45,179 +47,180 @@ function parseFace(im, i, face)
     console.log("face: ", face);
     var cp = im.crop(face.x,face.y,face.width,face.height);
 
-    if(face.width < 500){
+    if(face.width < 300){
       var w = face.width;
       var h = face.height;
-      cp.resize(500, (500 * 100 / w) * h / 100);
+      cp.resize(300, (300 * 100 / w) * h / 100);
     }
-    var cn = cp.copy();
 
-    cn.convertGrayscale();
-    //cn.canny(0, 100);
-    cn.canny(50, 200);
-    cn.dilate(t);
+    [
+      [0, 100],
+      [0, 255],
+      [50, 100],
+      [50, 200],
+      [100, 200]
+    ].forEach(function(range, r){
+      var cn = cp.copy();
+      var src = cp.copy();
 
-    var contours = cn.findContours();
-    var src = cp.copy();
+      cn.convertGrayscale();
+      //cn.canny(0, 100);
+      cn.canny(range[0], range[1]);
+      cn.dilate(t);
 
-    for(var x = 0; x < contours.size(); x++) {
-      if(contours.area(x) > minArea) {
-        contours.approxPolyDP(x, contours.arcLength(x, true) * 0.02, true);
+      var lines = cn.houghLinesP(7, Math.PI/360, 100, 20, 40);
+      for(var l = 0; l < lines.length; l++){
+        var line = lines[l];
+        cn.line([line[0], line[1]], [line[2], line[3]], WHITE);
+        //cp.line([line[0], line[1]], [line[2], line[3]], RED);
+      }
 
-        cp.drawContour(contours, x, GREEN);
+      var contours = cn.findContours(0, 2);
 
-        var length = contours.cornerCount(x);
+      for(var x = 0; x < contours.size(); x++) {
+        if(contours.area(x) > minArea) {
+          contours.approxPolyDP(x, contours.arcLength(x, true) * 0.025, true);
 
-        if(length === 4){
-          var points = [
-            contours.point(x,0),
-            contours.point(x,1),
-            contours.point(x,2),
-            contours.point(x,3)
-          ];
+          cp.drawContour(contours, x, GREEN);
 
-          var pos = getPos(points);
-          var a1  = Math.atan2(pos.rt.y - pos.lt.y, pos.rt.x - pos.lt.x) * 180.0 / Math.PI;
-          var a2  = Math.atan2(pos.rb.y - pos.lb.y, pos.rb.x - pos.lb.x) * 180.0 / Math.PI;
-          var ma  = (a1 + a2) / 2;
+          var length = contours.cornerCount(x);
 
-          if(ma < 0){
-            // /
-            // very diffrent angles, wrong reqtangle
-            if(a1 > (a2+1) || a1 < (a2-1)){
+          if(length === 4){
+            var points = [
+              contours.point(x,0),
+              contours.point(x,1),
+              contours.point(x,2),
+              contours.point(x,3)
+            ];
 
-            }
-          } else if(ma > 0) {
-            // \
-            if(a1 > (a2+1) || a1 < (a2-1)){
+            var pos = getPos(points);
+            var a1  = Math.atan2(pos.rt.y - pos.lt.y, pos.rt.x - pos.lt.x) * 180.0 / Math.PI;
+            var a2  = Math.atan2(pos.rb.y - pos.lb.y, pos.rb.x - pos.lb.x) * 180.0 / Math.PI;
+            var ma  = (a1 + a2) / 2;
 
-            }
-          }
+            if(ma < 0){
+              // /
+              // very diffrent angles, wrong reqtangle
+              if(a1 > (a2+1) || a1 < (a2-1)){
 
-          //console.log("pos: ", pos);
-          //console.log("angle1: ", a1);
-          //console.log("angle2: ", a2);
-          //console.log("angle2: ", ma);
-
-          var lowerTopPoint    = pos.lt.y > pos.rt.y ? pos.lt : pos.rt;
-          var lowerBottomPoint = pos.lb.y > pos.rb.y ? pos.lb : pos.rb;
-
-          var srcArray = [
-            pos.lt.x,  pos.lt.y, 
-            pos.rt.x,  pos.rt.y, 
-            pos.rb.x,  pos.rb.y, 
-            pos.lb.x,  pos.lb.y
-          ];
-
-          var dstArray = [
-            pos.lt.x, lowerTopPoint.y, 
-            pos.rt.x, lowerTopPoint.y, 
-            pos.rb.x, lowerBottomPoint.y, 
-            pos.lb.x, lowerBottomPoint.y
-          ];
-
-          console.log(i, x, t, srcArray, dstArray);
-
-          var tmp = src.copy();
-
-          var xfrmMat = tmp.getPerspectiveTransform(srcArray, dstArray);
-          tmp.warpPerspective(xfrmMat, tmp.width(), tmp.height(), [255, 255, 255]);
-
-          var clear = tmp.crop(pos.lt.x, lowerTopPoint.y, (pos.rt.x - pos.lt.x), (lowerBottomPoint.y - lowerTopPoint.y));
-          
-          clear.convertGrayscale();
-          //clear.canny(50, 200);
-          
-          var arr = [];
-          for(var w = 0; w < clear.width(); w++){
-            var empty = 0;
-            for(var h = 0; h < clear.height(); h++){
-              arr.push(clear.pixel(h, w));
-            }
-          }
-          
-          var min = Math.min.apply(null, arr);
-          var max = Math.max.apply(null, arr);
-          var mid = ((max - min) / 2) + min;
-          console.info("min: %d, max: %d, mid: %d", min, max, mid);
-          
-          var values = [];
-          for(var w = 0; w < clear.width(); w++){
-            var empty = 0;
-            for(var h = 0; h < clear.height(); h++){
-              var val = clear.pixel(h, w);
-              //var val = (col[0]<<16) | (col[1]<<8) | col[2];
-              //console.log("0", );
-
-              if(val > mid){
-                empty++;
               }
+            } else if(ma > 0) {
+              // \
+              if(a1 > (a2+1) || a1 < (a2-1)){
 
-              //console.info(sprintf("%06X", val));
-              //console.log(val);
-              
-              //empty += val;
-            }
-
-            values.push(empty);
-          }
-
-          //console.log("values: ", values.length, values.reduce(function(v, c){ return v + c; }, 0));
-          var max = Math.max.apply(null, values);
-
-          // max    == 100%
-          // val    == x%
-          // 
-          // x = val * 100 / max
-          // 
-          // heigth == 100%
-          // h      == X%
-          // 
-          // h = height * (val * 100 / max) / 100
-          // 
-
-
-          var height = clear.height();
-          var current = [];
-          var splits = [];
-          values.forEach(function(val, index){
-            //console.info("%d => %d", index, val);
-            var p = (val * 100 / max);
-            if(p >= 85){
-              current.push(index);
-            } else {
-              if(current.length > 0){
-                splits.push(current);
               }
-              current = [];
             }
 
-            //clear.line([index, 0], [index, (height * p / 100)], WHITE);
-          });
+            //console.log("pos: ", pos);
+            //console.log("angle1: ", a1);
+            //console.log("angle2: ", a2);
+            //console.log("angle2: ", ma);
 
-          clear.save("./tmp/ready-" + i + "-" + x + "-" + t + ".png");
+            var lowerTopPoint    = pos.lt.y > pos.rt.y ? pos.lt : pos.rt;
+            var lowerBottomPoint = pos.lb.y > pos.rb.y ? pos.lb : pos.rb;
 
-          if(current.length > 0){
-            splits.push(current);
-          }
+            var srcArray = [
+              pos.lt.x,  pos.lt.y, 
+              pos.rt.x,  pos.rt.y, 
+              pos.rb.x,  pos.rb.y, 
+              pos.lb.x,  pos.lb.y
+            ];
 
-          var last = 0;
-          splits.forEach(function(current, n){
-            var index = Math.ceil(current[0] + ((current[current.length - 1] - current[0]) / 2));
-            console.info("index: [%d: %d => %d]", clear.width(), last, index);
-            var letter = clear.crop(last, 0, index-last, clear.height());
-            letter.save("./tmp/letter-" + i + "-" + x + "-" + t + "-" + n + ".png");
-            files.push(__dirname + "/tmp/letter-" + i + "-" + x + "-" + t + "-" + n + ".png");
+            var dstArray = [
+              pos.lt.x, lowerTopPoint.y, 
+              pos.rt.x, lowerTopPoint.y, 
+              pos.rb.x, lowerBottomPoint.y, 
+              pos.lb.x, lowerBottomPoint.y
+            ];
+
+            console.log(i, x, t, srcArray, dstArray);
+
+            var tmp = src.copy();
+
+            var xfrmMat = tmp.getPerspectiveTransform(srcArray, dstArray);
+            tmp.warpPerspective(xfrmMat, tmp.width(), tmp.height(), [255, 255, 255]);
+
+            var clear = tmp.crop(pos.lt.x, lowerTopPoint.y, (pos.rt.x - pos.lt.x), (lowerBottomPoint.y - lowerTopPoint.y));
             
-            last = index + 1;
-          });
+            clear.convertGrayscale();
+            //clear.canny(50, 200);
+            
+            var arr = [];
+            for(var w = 0; w < clear.width(); w++){
+              var empty = 0;
+              for(var h = 0; h < clear.height(); h++){
+                arr.push(clear.pixel(h, w));
+              }
+            }
+            
+            var min = Math.min.apply(null, arr);
+            var max = Math.max.apply(null, arr);
+            var mid = ((max - min) / 2) + min;
+            console.info("min: %d, max: %d, mid: %d", min, max, mid);
+            
+            var values = [];
+            for(var w = 0; w < clear.width(); w++){
+              var empty = 0;
+              for(var h = 0; h < clear.height(); h++){
+                var val = clear.pixel(h, w);
+                
+                if(val > mid){
+                  empty++;
+                }
+              }
 
-          //files.push(__dirname + "/tmp/ready-" + i + "-" + x + "-" + t + ".png");
+              values.push(empty);
+            }
+
+            var max = Math.max.apply(null, values);
+            var height = clear.height();
+            var current = [];
+            var splits = [];
+            values.forEach(function(val, index){
+              //console.info("%d => %d", index, val);
+              var p = (val * 100 / max);
+              if(p >= 80){
+                current.push(index);
+              } else {
+                if(current.length > 0){
+                  splits.push(current);
+                }
+                current = [];
+              }
+
+              //clear.line([index, 0], [index, (height * p / 100)], WHITE);
+            });
+
+            clear.save("./tmp/ready-" + clrFileName + "-" + r + "-" + i + "-" + x + "-" + t + ".png");
+
+            if(current.length > 0){
+              splits.push(current);
+            }
+
+            var last = 0;
+            splits.forEach(function(current, n){
+              var index = Math.ceil(current[0] + ((current[current.length - 1] - current[0]) / 2));
+              console.info("index: [%d: %d => %d]", clear.width(), last, index);
+              var w = index-last;
+              if(w <= 20){
+                last = index + 1;
+                return;
+              }
+              var letter = clear.crop(last, 0, w, clear.height());
+              letter.save("./tmp/letter-" + clrFileName + "-" + i + "-" + x + "-" + t + "-" + n + ".png");
+              files.push(__dirname + "/tmp/letter-" + clrFileName + "-" + i + "-" + x + "-" + t + "-" + n + ".png");
+              
+              last = index + 1;
+            });
+
+            //files.push(__dirname + "/tmp/ready-" + i + "-" + x + "-" + t + ".png");
+          }
         }
       }
-    }
 
-    cp.save("./tmp/cp-" + i + "-" + t + ".png");
+      cp.save("./tmp/cp-" + clrFileName + "-" + r + "-" + i + "-" + t + ".png");
+      cn.save("./tmp/cn-" + clrFileName + "-" + r + "-" + i + "-" + t + ".png");
+    });
 
   }
 
