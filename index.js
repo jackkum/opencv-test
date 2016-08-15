@@ -40,17 +40,187 @@ cv.readImage(__dirname + "/images/" + filename, function(err, im){
 
 });
 
+function findPlate(cp, range, dilate, im, i)
+{
+  var cn  = cp.copy();
+  var src = cp.copy();
+
+  // down-scale and upscale the image to filter out the noise
+  cn.normalize(0, 255);
+  cn.pyrDown();
+  cn.pyrUp();
+  cn.convertGrayscale();
+  cn.canny(range[0], range[1]);
+  cn.dilate(dilate);
+
+  var contours = cn.findContours(0, 2);
+
+  for(var x = 0; x < contours.size(); x++) {
+
+    if(contours.area(x) > minArea) {
+      contours.approxPolyDP(x, contours.arcLength(x, true) * 0.030, true);
+      cp.drawContour(contours, x, GREEN);
+
+      var length = contours.cornerCount(x);
+
+      if(length === 4){
+        var points = [
+          contours.point(x,0),
+          contours.point(x,1),
+          contours.point(x,2),
+          contours.point(x,3)
+        ];
+
+        var pos = getPos(points);
+        var a1  = Math.atan2(pos.rt.y - pos.lt.y, pos.rt.x - pos.lt.x) * 180.0 / Math.PI;
+        var a2  = Math.atan2(pos.rb.y - pos.lb.y, pos.rb.x - pos.lb.x) * 180.0 / Math.PI;
+
+        if(a1 > (a2+2) || a1 < (a2-2)){
+          console.info("%d :: %d", a1, a2);
+          continue;
+        }
+
+        var ma  = (a1 + a2) / 2;
+
+        if(ma < 0){
+          // /
+          // very diffrent angles, wrong reqtangle
+          if(a1 > (a2+1) || a1 < (a2-1)){
+
+          }
+        } else if(ma > 0) {
+          // \
+          if(a1 > (a2+1) || a1 < (a2-1)){
+
+          }
+        }
+
+        var lowerTopPoint    = pos.lt.y > pos.rt.y ? pos.lt : pos.rt;
+        var lowerBottomPoint = pos.lb.y > pos.rb.y ? pos.lb : pos.rb;
+
+        var srcArray = [
+          pos.lt.x,  pos.lt.y, 
+          pos.rt.x,  pos.rt.y, 
+          pos.rb.x,  pos.rb.y, 
+          pos.lb.x,  pos.lb.y
+        ];
+
+        var dstArray = [
+          pos.lt.x, lowerTopPoint.y, 
+          pos.rt.x, lowerTopPoint.y, 
+          pos.rb.x, lowerBottomPoint.y, 
+          pos.lb.x, lowerBottomPoint.y
+        ];
+
+        var tmp = src.copy();
+
+        console.info("Transform...");
+        var xfrmMat = tmp.getPerspectiveTransform(srcArray, dstArray);
+        tmp.warpPerspective(xfrmMat, tmp.width(), tmp.height(), [255, 255, 255]);
+
+        var plate = tmp.crop(pos.lt.x, lowerTopPoint.y, (pos.rt.x - pos.lt.x), (lowerBottomPoint.y - lowerTopPoint.y));
+        
+        plate.convertGrayscale();
+        //plate.canny(50, 200);
+        
+        var arr = [];
+        for(var w = 0; w < plate.width(); w++){
+          var empty = 0;
+          for(var h = 0; h < plate.height(); h++){
+            arr.push(plate.pixel(h, w));
+          }
+        }
+        
+        var min = Math.min.apply(null, arr);
+        var max = Math.max.apply(null, arr);
+        var mid = ((max - min) / 2) + min;
+        //console.info("min: %d, max: %d, mid: %d", min, max, mid);
+        
+        var values = [];
+        for(var w = 0; w < plate.width(); w++){
+          var empty = 0;
+          for(var h = 0; h < plate.height(); h++){
+            var val = plate.pixel(h, w);
+            
+            if(val > mid){
+              empty++;
+            }
+          }
+
+          values.push(empty);
+        }
+
+        var max = Math.max.apply(null, values);
+        var height = plate.height();
+        var current = [];
+        var splits = [];
+        values.forEach(function(val, index){
+          //console.info("%d => %d", index, val);
+          var p = (val * 100 / max);
+          if(p >= 85){
+            current.push(index);
+          } else {
+            if(current.length > 0){
+              splits.push(current);
+            }
+            current = [];
+          }
+
+          //plate.line([index, 0], [index, (height * p / 100)], WHITE);
+        });
+
+        plate.save("./tmp/ready[" + clrFileName + "][" + i + "][" + range[0] + "-" + range[1] + "][" + dilate + "].png");
+
+        if(current.length > 0){
+          splits.push(current);
+        }
+
+        var last = 0;
+        splits.forEach(function(current, n){
+          var index = Math.ceil(current[0] + ((current[current.length - 1] - current[0]) / 2));
+          //console.info("index: [%d: %d => %d]", plate.width(), last, index);
+          var w = index-last;
+          if(w <= 20){
+            last = index + 1;
+            return;
+          }
+          var letter = plate.crop(last, 0, w, plate.height());
+          letter.save("./tmp/letter[" + clrFileName + "][" + i + "][" + range[0] + "-" + range[1] + "][" + dilate + "][" + n + "].png");
+          //files.push(__dirname + "/tmp/letter-" + clrFileName + "-" + i + "-" + x + "-" + t + "-" + n + ".png");
+          
+          last = index + 1;
+        });
+
+        //files.push(__dirname + "/tmp/ready-" + i + "-" + x + "-" + t + ".png");
+      }
+    }
+  }
+
+  cp.save("./tmp/cp[" + clrFileName + "][" + i + "][" + range[0] + "-" + range[1] + "][" + dilate + "].png");
+  cn.save("./tmp/cn[" + clrFileName + "][" + i + "][" + range[0] + "-" + range[1] + "][" + dilate + "].png");
+
+}
+
 function parseFace(im, i, face)
 {
-  var files = [];
-  for(var t = 1; t <= 3; t++){
-    console.log("face: ", face);
-    var cp = im.crop(face.x,face.y,face.width,face.height);
+  console.log("face[%d]: ", i, face);
 
-    if(face.width < 300){
+  var files = [];
+  var plate = im.crop(face.x,face.y,face.width,face.height);
+  plate.save("./tmp/plate[" + clrFileName + "][" + i + "].png");
+  for(var t = 1; t <= 3; t++){
+
+    var cp = plate.copy();
+
+    //im.line([face.x,face.y], [face.x+face.width, face.y]);
+    //im.line([face.x+face.width,face.y], [face.x+face.width, face.y+face.height]);
+    //im.line([face.x+face.width,face.y+face.height], [face.x, face.y+face.height]);
+    //im.line([face.x,face.y+face.height], [face.x, face.y]);
+
+    if(face.width < 500){
       var w = face.width;
       var h = face.height;
-      cp.resize(300, (300 * 100 / w) * h / 100);
+      cp.resize(500, (500 * 100 / w) * h / 100);
     }
 
     [
@@ -59,170 +229,13 @@ function parseFace(im, i, face)
       [50, 100],
       [50, 200],
       [100, 200]
-    ].forEach(function(range, r){
-      var cn = cp.copy();
-      var src = cp.copy();
-
-      cn.convertGrayscale();
-      //cn.canny(0, 100);
-      cn.canny(range[0], range[1]);
-      cn.dilate(t);
-
-      var lines = cn.houghLinesP(7, Math.PI/360, 100, 20, 40);
-      for(var l = 0; l < lines.length; l++){
-        var line = lines[l];
-        cn.line([line[0], line[1]], [line[2], line[3]], WHITE);
-        //cp.line([line[0], line[1]], [line[2], line[3]], RED);
-      }
-
-      var contours = cn.findContours(0, 2);
-
-      for(var x = 0; x < contours.size(); x++) {
-        if(contours.area(x) > minArea) {
-          contours.approxPolyDP(x, contours.arcLength(x, true) * 0.025, true);
-
-          //cp.drawContour(contours, x, GREEN);
-
-          var length = contours.cornerCount(x);
-
-          if(length === 4){
-            var points = [
-              contours.point(x,0),
-              contours.point(x,1),
-              contours.point(x,2),
-              contours.point(x,3)
-            ];
-
-            var pos = getPos(points);
-            var a1  = Math.atan2(pos.rt.y - pos.lt.y, pos.rt.x - pos.lt.x) * 180.0 / Math.PI;
-            var a2  = Math.atan2(pos.rb.y - pos.lb.y, pos.rb.x - pos.lb.x) * 180.0 / Math.PI;
-            var ma  = (a1 + a2) / 2;
-
-            if(ma < 0){
-              // /
-              // very diffrent angles, wrong reqtangle
-              if(a1 > (a2+1) || a1 < (a2-1)){
-
-              }
-            } else if(ma > 0) {
-              // \
-              if(a1 > (a2+1) || a1 < (a2-1)){
-
-              }
-            }
-
-            //console.log("pos: ", pos);
-            //console.log("angle1: ", a1);
-            //console.log("angle2: ", a2);
-            //console.log("angle2: ", ma);
-
-            var lowerTopPoint    = pos.lt.y > pos.rt.y ? pos.lt : pos.rt;
-            var lowerBottomPoint = pos.lb.y > pos.rb.y ? pos.lb : pos.rb;
-
-            var srcArray = [
-              pos.lt.x,  pos.lt.y, 
-              pos.rt.x,  pos.rt.y, 
-              pos.rb.x,  pos.rb.y, 
-              pos.lb.x,  pos.lb.y
-            ];
-
-            var dstArray = [
-              pos.lt.x, lowerTopPoint.y, 
-              pos.rt.x, lowerTopPoint.y, 
-              pos.rb.x, lowerBottomPoint.y, 
-              pos.lb.x, lowerBottomPoint.y
-            ];
-
-            console.log(i, x, t, srcArray, dstArray);
-
-            var tmp = src.copy();
-
-            var xfrmMat = tmp.getPerspectiveTransform(srcArray, dstArray);
-            tmp.warpPerspective(xfrmMat, tmp.width(), tmp.height(), [255, 255, 255]);
-
-            var clear = tmp.crop(pos.lt.x, lowerTopPoint.y, (pos.rt.x - pos.lt.x), (lowerBottomPoint.y - lowerTopPoint.y));
-            
-            clear.convertGrayscale();
-            //clear.canny(50, 200);
-            
-            var arr = [];
-            for(var w = 0; w < clear.width(); w++){
-              var empty = 0;
-              for(var h = 0; h < clear.height(); h++){
-                arr.push(clear.pixel(h, w));
-              }
-            }
-            
-            var min = Math.min.apply(null, arr);
-            var max = Math.max.apply(null, arr);
-            var mid = ((max - min) / 2) + min;
-            console.info("min: %d, max: %d, mid: %d", min, max, mid);
-            
-            var values = [];
-            for(var w = 0; w < clear.width(); w++){
-              var empty = 0;
-              for(var h = 0; h < clear.height(); h++){
-                var val = clear.pixel(h, w);
-                
-                if(val > mid){
-                  empty++;
-                }
-              }
-
-              values.push(empty);
-            }
-
-            var max = Math.max.apply(null, values);
-            var height = clear.height();
-            var current = [];
-            var splits = [];
-            values.forEach(function(val, index){
-              //console.info("%d => %d", index, val);
-              var p = (val * 100 / max);
-              if(p >= 85){
-                current.push(index);
-              } else {
-                if(current.length > 0){
-                  splits.push(current);
-                }
-                current = [];
-              }
-
-              //clear.line([index, 0], [index, (height * p / 100)], WHITE);
-            });
-
-            clear.save("./tmp/ready-" + clrFileName + "-" + r + "-" + i + "-" + x + "-" + t + ".png");
-
-            if(current.length > 0){
-              splits.push(current);
-            }
-
-            var last = 0;
-            splits.forEach(function(current, n){
-              var index = Math.ceil(current[0] + ((current[current.length - 1] - current[0]) / 2));
-              console.info("index: [%d: %d => %d]", clear.width(), last, index);
-              var w = index-last;
-              if(w <= 20){
-                last = index + 1;
-                return;
-              }
-              var letter = clear.crop(last, 0, w, clear.height());
-              letter.save("./tmp/letter-" + clrFileName + "-" + i + "-" + x + "-" + t + "-" + n + ".png");
-              files.push(__dirname + "/tmp/letter-" + clrFileName + "-" + i + "-" + x + "-" + t + "-" + n + ".png");
-              
-              last = index + 1;
-            });
-
-            //files.push(__dirname + "/tmp/ready-" + i + "-" + x + "-" + t + ".png");
-          }
-        }
-      }
-
-      cp.save("./tmp/cp-" + clrFileName + "-" + r + "-" + i + "-" + t + ".png");
-      cn.save("./tmp/cn-" + clrFileName + "-" + r + "-" + i + "-" + t + ".png");
+    ].forEach(function(range){
+      findPlate(cp, range, t, im, i);
     });
 
   }
+
+  im.save("./tmp/original[" + clrFileName + "].png");
 
   return new Promise(function(resolve){
 
